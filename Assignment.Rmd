@@ -1,0 +1,125 @@
+---
+title: "Practical Machine Learning Assignment"
+author: "Li Weixiong, Winston"
+date: "18 October 2015"
+output: html_document
+---
+
+## Introduction  
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively.  These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks.  One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants.  They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.  More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).  we will use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which they did the exercise.  
+
+## Data Preprocessing  
+```{r warning = FALSE, message = FALSE}
+library(caret)
+```
+
+### Download the Data
+```{r}
+TrainingDataFile <- "pml-training.csv"
+TestingDataFile  <- "pml-testing.csv"
+
+if (!file.exists(TrainingDataFile)) 
+{
+        download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", TrainingDataFile)
+}
+if (!file.exists(TestingDataFile)) 
+{
+        download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", TestingDataFile)
+}
+```  
+
+### Cleaning the Data
+Here we will load the data into 2 data frame.  
+```{r results = 'hide', cache = TRUE}
+trainDataset <- read.csv(TrainingDataFile)
+testDataset<- read.csv(TestingDataFile)
+dim(trainDataset)
+dim(testDataset)
+```
+The training dataset contains 19622 observations and 160 variables and the testing dataset contains 20 observations and 160 variables.  We will clean up the dataset using the following steps: 
+
+1. Remove variables that don't make intuitive sense for prediction (Variable 1 - 5).  
+2. Remove column that contains mostly `N.A.` values.  
+3. Remove variable with near zero variance.  
+```{r results = 'hide', cache = TRUE}
+# Remove variables that don't make intuitive sense for prediction (Variable 1 - 5).
+trainDataset <- trainDataset[,-(1:5)]
+testDataset <- testDataset[,-(1:5)]
+
+# Remove column that contains mostly `N.A.` values.
+trainDataset <- trainDataset[,colSums(is.na(trainDataset)) == 0]
+testDataset <- testDataset[,colSums(is.na(testDataset)) == 0]
+
+# Remove variable with near zero variance.
+train_nzv <- nearZeroVar(trainDataset)
+trainDataset <- trainDataset[,-train_nzv]
+
+test_nzv <- nearZeroVar(testDataset)
+testDataset <- testDataset[,-test_nzv]
+
+# Remove Problem_ID from Test Dataset
+testDataset <- testDataset[, -length(names(testDataset))]
+
+dim(trainDataset)
+dim(testDataset)
+```
+After processing, the training dataset contains 19622 observations and 54 variables and the testing dataset contains 20 observations and 53 variables.
+
+### Splitting the Training Data
+We will split `trainingDataset` into training data set (70%) and a validation data set (30%). We will use the validation data set to conduct cross validation later.  
+```{r results = 'hide', cache = TRUE}
+set.seed(181015)
+inTrain <- createDataPartition(trainDataset$classe, p=0.70, list=F)
+training <- trainDataset[inTrain, ]
+testing <- trainDataset[-inTrain, ]
+```
+
+## Data Modeling
+We will explore the following predictive model to determine which model to be used:
+
+1. Tree
+2. Random Forest
+
+For all model, we will be using 10 fold cross validation.  From the lecture, we would expect modeling using Random Forest to yield high accuracy while Tree to yield low accuracy. 
+
+### Data Modeling: Tree
+```{r results = 'hold', cache = TRUE}
+crv <- trainControl(method="cv", 10)
+modFit1 <- train(classe ~ ., data = training, method = "rpart", trControl = crv)
+predictions1 <- predict(modFit1, testing)
+confusionMatrix(predictions1, testing$classe)
+```
+
+### Data Modeling: Random Forest
+```{r results = 'hold', cache = TRUE}
+modFit2 <- train(classe ~ ., data=training, method = "rf", trControl = crv)
+predictions2 <- predict(modFit2, testing)
+confusionMatrix(predictions2, testing$classe)
+```
+
+From the above, Random Forest yield a much better result comparing to Tree.  Random Forest has an accuracy of 99.8% with an out-of-sample error of 0.2%.  As such, we will use Random Forest for the prediction.
+
+## Generating Files to submit for the Assignment 2
+From the previous section, we will use Random Forest to train on the `trainDataset` and predict on the `testDataset`.  Finally, we will output the prediction for submission.
+```{r results = 'hold', cache = TRUE}
+# Train on the train dataset
+modFit <- train(classe ~ ., data=trainDataset, method = "rf", trControl = crv)
+
+# Perform Predictions
+predictions <- predict(modFit, testDataset)
+predictions <- as.character(predictions)
+
+# create function to write predictions to files
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+# create prediction files to submit
+pml_write_files(predictions)
+```
